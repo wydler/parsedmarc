@@ -75,6 +75,79 @@ def _str_to_list(s):
     return list(map(lambda i: i.lstrip(), _list))
 
 
+# All known INI config section names, used for env var resolution.
+_KNOWN_SECTIONS = frozenset(
+    {
+        "general",
+        "mailbox",
+        "imap",
+        "msgraph",
+        "elasticsearch",
+        "opensearch",
+        "splunk_hec",
+        "kafka",
+        "smtp",
+        "s3",
+        "syslog",
+        "gmail_api",
+        "maildir",
+        "log_analytics",
+        "gelf",
+        "webhook",
+    }
+)
+
+
+def _resolve_section_key(suffix: str) -> tuple:
+    """Resolve an env var suffix like ``IMAP_PASSWORD`` to ``('imap', 'password')``.
+
+    Uses longest-prefix matching against known section names so that
+    multi-word sections like ``splunk_hec`` are handled correctly.
+
+    Returns ``(None, None)`` when no known section matches.
+    """
+    suffix_lower = suffix.lower()
+
+    best_section = None
+    best_key = None
+    for section in _KNOWN_SECTIONS:
+        section_prefix = section + "_"
+        if suffix_lower.startswith(section_prefix):
+            key = suffix_lower[len(section_prefix) :]
+            if key and (best_section is None or len(section) > len(best_section)):
+                best_section = section
+                best_key = key
+
+    return best_section, best_key
+
+
+def _apply_env_overrides(config: ConfigParser) -> None:
+    """Inject ``PARSEDMARC_*`` environment variables into *config*.
+
+    Environment variables matching ``PARSEDMARC_{SECTION}_{KEY}`` override
+    (or create) the corresponding config-file values.  Sections are created
+    automatically when they do not yet exist.
+    """
+    prefix = "PARSEDMARC_"
+
+    for env_key, env_value in os.environ.items():
+        if not env_key.startswith(prefix) or env_key == "PARSEDMARC_CONFIG_FILE":
+            continue
+
+        suffix = env_key[len(prefix) :]
+        section, key = _resolve_section_key(suffix)
+
+        if section is None:
+            logger.debug("Ignoring unrecognized env var: %s", env_key)
+            continue
+
+        if not config.has_section(section):
+            config.add_section(section)
+
+        config.set(section, key, env_value)
+        logger.debug("Config override from env: [%s] %s", section, key)
+
+
 def _configure_logging(log_level, log_file=None):
     """
     Configure logging for the current process.
@@ -178,12 +251,39 @@ class ConfigurationError(Exception):
     pass
 
 
-def _parse_config_file(config_file, opts):
-    """Parse a config file and update opts in place.
+def _load_config(config_file: str | None = None) -> ConfigParser:
+    """Load configuration from an INI file and/or environment variables.
 
     Args:
-        config_file: Path to the .ini config file
-        opts: Namespace object to update with parsed values
+        config_file: Optional path to an .ini config file.
+
+    Returns:
+        A ``ConfigParser`` populated from the file (if given) and from any
+        ``PARSEDMARC_*`` environment variables.
+
+    Raises:
+        ConfigurationError: If *config_file* is given but does not exist.
+    """
+    config = ConfigParser()
+    if config_file is not None:
+        abs_path = os.path.abspath(config_file)
+        if not os.path.exists(abs_path):
+            raise ConfigurationError("A file does not exist at {0}".format(abs_path))
+        if not os.access(abs_path, os.R_OK):
+            raise ConfigurationError(
+                "Unable to read {0} — check file permissions".format(abs_path)
+            )
+        config.read(config_file)
+    _apply_env_overrides(config)
+    return config
+
+
+def _parse_config(config: ConfigParser, opts):
+    """Apply a loaded ``ConfigParser`` to *opts* in place.
+
+    Args:
+        config: A ``ConfigParser`` (from ``_load_config``).
+        opts: Namespace object to update with parsed values.
 
     Returns:
         index_prefix_domain_map or None
@@ -191,13 +291,8 @@ def _parse_config_file(config_file, opts):
     Raises:
         ConfigurationError: If required settings are missing or invalid.
     """
-    abs_path = os.path.abspath(config_file)
-    if not os.path.exists(abs_path):
-        raise ConfigurationError("A file does not exist at {0}".format(abs_path))
     opts.silent = True
-    config = ConfigParser()
     index_prefix_domain_map = None
-    config.read(config_file)
     if "general" in config.sections():
         general_config = config["general"]
         if "silent" in general_config:
@@ -1683,9 +1778,16 @@ def _main():
 
     index_prefix_domain_map = None
 
-    if args.config_file:
+    config_file = args.config_file or os.environ.get("PARSEDMARC_CONFIG_FILE")
+    has_env_config = any(
+        k.startswith("PARSEDMARC_") and k != "PARSEDMARC_CONFIG_FILE"
+        for k in os.environ
+    )
+
+    if config_file or has_env_config:
         try:
-            index_prefix_domain_map = _parse_config_file(args.config_file, opts)
+            config = _load_config(config_file)
+            index_prefix_domain_map = _parse_config(config, opts)
         except ConfigurationError as e:
             logger.critical(str(e))
             exit(-1)
@@ -2102,9 +2204,8 @@ def _main():
                 # Build a fresh opts starting from CLI-only defaults so that
                 # sections removed from the config file actually take effect.
                 new_opts = Namespace(**vars(opts_from_cli))
-                new_index_prefix_domain_map = _parse_config_file(
-                    args.config_file, new_opts
-                )
+                new_config = _load_config(config_file)
+                new_index_prefix_domain_map = _parse_config(new_config, new_opts)
                 new_clients = _init_output_clients(new_opts)
 
                 # All steps succeeded — commit the changes atomically.

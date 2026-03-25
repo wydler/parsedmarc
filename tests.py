@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from base64 import urlsafe_b64encode
+from configparser import ConfigParser
 from glob import glob
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -1985,7 +1986,8 @@ watch = true
         "SIGHUP not available on this platform",
     )
     @patch("parsedmarc.cli._init_output_clients")
-    @patch("parsedmarc.cli._parse_config_file")
+    @patch("parsedmarc.cli._parse_config")
+    @patch("parsedmarc.cli._load_config")
     @patch("parsedmarc.cli.get_dmarc_reports_from_mailbox")
     @patch("parsedmarc.cli.watch_inbox")
     @patch("parsedmarc.cli.IMAPConnection")
@@ -1994,6 +1996,7 @@ watch = true
         mock_imap,
         mock_watch,
         mock_get_reports,
+        mock_load_config,
         mock_parse_config,
         mock_init_clients,
     ):
@@ -2007,7 +2010,9 @@ watch = true
             "smtp_tls_reports": [],
         }
 
-        def parse_side_effect(config_file, opts):
+        mock_load_config.return_value = ConfigParser()
+
+        def parse_side_effect(config, opts):
             opts.imap_host = "imap.example.com"
             opts.imap_user = "user"
             opts.imap_password = "pass"
@@ -2046,7 +2051,7 @@ watch = true
         self.assertEqual(cm.exception.code, 1)
         # watch_inbox was called twice: initial run + after reload
         self.assertEqual(mock_watch.call_count, 2)
-        # _parse_config_file called for initial load + reload
+        # _parse_config called for initial load + reload
         self.assertGreaterEqual(mock_parse_config.call_count, 2)
 
     @unittest.skipUnless(
@@ -2054,7 +2059,8 @@ watch = true
         "SIGHUP not available on this platform",
     )
     @patch("parsedmarc.cli._init_output_clients")
-    @patch("parsedmarc.cli._parse_config_file")
+    @patch("parsedmarc.cli._parse_config")
+    @patch("parsedmarc.cli._load_config")
     @patch("parsedmarc.cli.get_dmarc_reports_from_mailbox")
     @patch("parsedmarc.cli.watch_inbox")
     @patch("parsedmarc.cli.IMAPConnection")
@@ -2063,6 +2069,7 @@ watch = true
         mock_imap,
         mock_watch,
         mock_get_reports,
+        mock_load_config,
         mock_parse_config,
         mock_init_clients,
     ):
@@ -2076,11 +2083,13 @@ watch = true
             "smtp_tls_reports": [],
         }
 
+        mock_load_config.return_value = ConfigParser()
+
         # Initial parse sets required opts; reload parse raises
         initial_map = {"prefix_": ["example.com"]}
         call_count = [0]
 
-        def parse_side_effect(config_file, opts):
+        def parse_side_effect(config, opts):
             call_count[0] += 1
             opts.imap_host = "imap.example.com"
             opts.imap_user = "user"
@@ -2130,7 +2139,8 @@ watch = true
         "SIGHUP not available on this platform",
     )
     @patch("parsedmarc.cli._init_output_clients")
-    @patch("parsedmarc.cli._parse_config_file")
+    @patch("parsedmarc.cli._parse_config")
+    @patch("parsedmarc.cli._load_config")
     @patch("parsedmarc.cli.get_dmarc_reports_from_mailbox")
     @patch("parsedmarc.cli.watch_inbox")
     @patch("parsedmarc.cli.IMAPConnection")
@@ -2139,6 +2149,7 @@ watch = true
         mock_imap,
         mock_watch,
         mock_get_reports,
+        mock_load_config,
         mock_parse_config,
         mock_init_clients,
     ):
@@ -2152,7 +2163,9 @@ watch = true
             "smtp_tls_reports": [],
         }
 
-        def parse_side_effect(config_file, opts):
+        mock_load_config.return_value = ConfigParser()
+
+        def parse_side_effect(config, opts):
             opts.imap_host = "imap.example.com"
             opts.imap_user = "user"
             opts.imap_password = "pass"
@@ -2284,7 +2297,8 @@ watch = true
         "SIGHUP not available on this platform",
     )
     @patch("parsedmarc.cli._init_output_clients")
-    @patch("parsedmarc.cli._parse_config_file")
+    @patch("parsedmarc.cli._parse_config")
+    @patch("parsedmarc.cli._load_config")
     @patch("parsedmarc.cli.get_dmarc_reports_from_mailbox")
     @patch("parsedmarc.cli.watch_inbox")
     @patch("parsedmarc.cli.IMAPConnection")
@@ -2293,6 +2307,7 @@ watch = true
         mock_imap,
         mock_watch,
         mock_get_reports,
+        mock_load_config,
         mock_parse_config,
         mock_init_clients,
     ):
@@ -2308,7 +2323,9 @@ watch = true
             "smtp_tls_reports": [],
         }
 
-        def parse_side_effect(config_file, opts):
+        mock_load_config.return_value = ConfigParser()
+
+        def parse_side_effect(config, opts):
             opts.imap_host = "imap.example.com"
             opts.imap_user = "user"
             opts.imap_password = "pass"
@@ -2472,6 +2489,192 @@ password = test-password
         self.assertIn("allowed-1", report_ids)
         self.assertIn("mixed-case-1", report_ids)
         self.assertNotIn("unmapped-1", report_ids)
+
+
+class TestEnvVarConfig(unittest.TestCase):
+    """Tests for environment variable configuration support."""
+
+    def test_resolve_section_key_simple(self):
+        """Simple section names resolve correctly."""
+        from parsedmarc.cli import _resolve_section_key
+
+        self.assertEqual(_resolve_section_key("IMAP_PASSWORD"), ("imap", "password"))
+        self.assertEqual(_resolve_section_key("GENERAL_DEBUG"), ("general", "debug"))
+        self.assertEqual(_resolve_section_key("S3_BUCKET"), ("s3", "bucket"))
+        self.assertEqual(_resolve_section_key("GELF_HOST"), ("gelf", "host"))
+
+    def test_resolve_section_key_underscore_sections(self):
+        """Multi-word section names (splunk_hec, gmail_api, etc.) resolve correctly."""
+        from parsedmarc.cli import _resolve_section_key
+
+        self.assertEqual(
+            _resolve_section_key("SPLUNK_HEC_TOKEN"), ("splunk_hec", "token")
+        )
+        self.assertEqual(
+            _resolve_section_key("GMAIL_API_CREDENTIALS_FILE"),
+            ("gmail_api", "credentials_file"),
+        )
+        self.assertEqual(
+            _resolve_section_key("LOG_ANALYTICS_CLIENT_ID"),
+            ("log_analytics", "client_id"),
+        )
+
+    def test_resolve_section_key_unknown(self):
+        """Unknown prefixes return (None, None)."""
+        from parsedmarc.cli import _resolve_section_key
+
+        self.assertEqual(_resolve_section_key("UNKNOWN_FOO"), (None, None))
+        # Just a section name with no key should not match
+        self.assertEqual(_resolve_section_key("IMAP"), (None, None))
+
+    def test_apply_env_overrides_injects_values(self):
+        """Env vars are injected into an existing ConfigParser."""
+        from configparser import ConfigParser
+        from parsedmarc.cli import _apply_env_overrides
+
+        config = ConfigParser()
+        config.add_section("imap")
+        config.set("imap", "host", "original.example.com")
+
+        env = {
+            "PARSEDMARC_IMAP_HOST": "new.example.com",
+            "PARSEDMARC_IMAP_PASSWORD": "secret123",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            _apply_env_overrides(config)
+
+        self.assertEqual(config.get("imap", "host"), "new.example.com")
+        self.assertEqual(config.get("imap", "password"), "secret123")
+
+    def test_apply_env_overrides_creates_sections(self):
+        """Env vars create new sections when they don't exist."""
+        from configparser import ConfigParser
+        from parsedmarc.cli import _apply_env_overrides
+
+        config = ConfigParser()
+
+        env = {"PARSEDMARC_ELASTICSEARCH_HOSTS": "http://localhost:9200"}
+        with patch.dict(os.environ, env, clear=False):
+            _apply_env_overrides(config)
+
+        self.assertTrue(config.has_section("elasticsearch"))
+        self.assertEqual(config.get("elasticsearch", "hosts"), "http://localhost:9200")
+
+    def test_apply_env_overrides_ignores_config_file_var(self):
+        """PARSEDMARC_CONFIG_FILE is not injected as a config key."""
+        from configparser import ConfigParser
+        from parsedmarc.cli import _apply_env_overrides
+
+        config = ConfigParser()
+
+        env = {"PARSEDMARC_CONFIG_FILE": "/some/path.ini"}
+        with patch.dict(os.environ, env, clear=False):
+            _apply_env_overrides(config)
+
+        self.assertEqual(config.sections(), [])
+
+    def test_load_config_with_file_and_env_override(self):
+        """Env vars override values from an INI file."""
+        from parsedmarc.cli import _load_config
+
+        with NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write(
+                "[imap]\nhost = file.example.com\nuser = alice\npassword = fromfile\n"
+            )
+            f.flush()
+            config_path = f.name
+
+        try:
+            env = {"PARSEDMARC_IMAP_PASSWORD": "fromenv"}
+            with patch.dict(os.environ, env, clear=False):
+                config = _load_config(config_path)
+
+            self.assertEqual(config.get("imap", "host"), "file.example.com")
+            self.assertEqual(config.get("imap", "user"), "alice")
+            self.assertEqual(config.get("imap", "password"), "fromenv")
+        finally:
+            os.unlink(config_path)
+
+    def test_load_config_env_only(self):
+        """Config can be loaded purely from env vars with no file."""
+        from parsedmarc.cli import _load_config
+
+        env = {
+            "PARSEDMARC_GENERAL_DEBUG": "true",
+            "PARSEDMARC_ELASTICSEARCH_HOSTS": "http://localhost:9200",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = _load_config(None)
+
+        self.assertEqual(config.get("general", "debug"), "true")
+        self.assertEqual(config.get("elasticsearch", "hosts"), "http://localhost:9200")
+
+    def test_parse_config_from_env(self):
+        """Full round-trip: env vars -> ConfigParser -> opts."""
+        from argparse import Namespace
+        from parsedmarc.cli import _load_config, _parse_config
+
+        env = {
+            "PARSEDMARC_GENERAL_DEBUG": "true",
+            "PARSEDMARC_GENERAL_SAVE_AGGREGATE": "true",
+            "PARSEDMARC_GENERAL_OFFLINE": "true",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            config = _load_config(None)
+
+        opts = Namespace()
+        _parse_config(config, opts)
+
+        self.assertTrue(opts.debug)
+        self.assertTrue(opts.save_aggregate)
+        self.assertTrue(opts.offline)
+
+    def test_config_file_env_var(self):
+        """PARSEDMARC_CONFIG_FILE env var specifies the config file path."""
+        from argparse import Namespace
+        from parsedmarc.cli import _load_config, _parse_config
+
+        with NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
+            f.write("[general]\ndebug = true\noffline = true\n")
+            f.flush()
+            config_path = f.name
+
+        try:
+            env = {"PARSEDMARC_CONFIG_FILE": config_path}
+            with patch.dict(os.environ, env, clear=False):
+                config = _load_config(os.environ.get("PARSEDMARC_CONFIG_FILE"))
+
+            opts = Namespace()
+            _parse_config(config, opts)
+            self.assertTrue(opts.debug)
+            self.assertTrue(opts.offline)
+        finally:
+            os.unlink(config_path)
+
+    def test_boolean_values_from_env(self):
+        """Various boolean string representations work through ConfigParser."""
+        from configparser import ConfigParser
+        from parsedmarc.cli import _apply_env_overrides
+
+        for true_val in ("true", "yes", "1", "on", "True", "YES"):
+            config = ConfigParser()
+            env = {"PARSEDMARC_GENERAL_DEBUG": true_val}
+            with patch.dict(os.environ, env, clear=False):
+                _apply_env_overrides(config)
+            self.assertTrue(
+                config.getboolean("general", "debug"),
+                f"Expected truthy for {true_val!r}",
+            )
+
+        for false_val in ("false", "no", "0", "off", "False", "NO"):
+            config = ConfigParser()
+            env = {"PARSEDMARC_GENERAL_DEBUG": false_val}
+            with patch.dict(os.environ, env, clear=False):
+                _apply_env_overrides(config)
+            self.assertFalse(
+                config.getboolean("general", "debug"),
+                f"Expected falsy for {false_val!r}",
+            )
 
 
 if __name__ == "__main__":

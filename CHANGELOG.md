@@ -1,5 +1,14 @@
 # Changelog
 
+## 9.5.0
+
+### Added
+
+- Environment variable configuration support: any config option can now be set via `PARSEDMARC_{SECTION}_{KEY}` environment variables (e.g. `PARSEDMARC_IMAP_PASSWORD`, `PARSEDMARC_SPLUNK_HEC_TOKEN`). Environment variables override config file values but are overridden by CLI arguments.
+- `PARSEDMARC_CONFIG_FILE` environment variable to specify the config file path without the `-c` flag.
+- Env-only mode: parsedmarc can now run without a config file when `PARSEDMARC_*` environment variables are set, enabling fully file-less Docker deployments.
+- Explicit read permission check on config file, giving a clear error message when the container UID cannot read the file (e.g. `chmod 600` with a UID mismatch).
+
 ## 9.4.0
 
 ### Added
