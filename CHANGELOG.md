@@ -1,5 +1,11 @@
 # Changelog
 
+## 9.5.1
+
+### Changes
+
+- Correct ISO format for MSGraphConnection timestamps (PR #706)
+
 ## 9.5.0
 
 ### Added
