@@ -1,5 +1,11 @@
 # Changelog
 
+## 9.5.3
+
+### Fixed
+
+- Fixed `FileNotFoundError` when using Maildir with Docker volume mounts. Python's `mailbox.Maildir(create=True)` only creates `cur/new/tmp` subdirectories when the top-level directory doesn't exist; Docker volume mounts pre-create the directory as empty, skipping subdirectory creation. parsedmarc now explicitly creates the subdirectories when `maildir_create` is enabled.
+
 ## 9.5.2
 
 ### Fixed

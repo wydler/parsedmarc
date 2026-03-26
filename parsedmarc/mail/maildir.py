@@ -31,6 +31,9 @@ class MaildirConnection(MailboxConnection):
                     os.getuid(), maildir_path, maildir_owner
                 )
                 raise Exception(ex)
+        if maildir_create:
+            for subdir in ("cur", "new", "tmp"):
+                os.makedirs(os.path.join(maildir_path, subdir), exist_ok=True)
         self._client = mailbox.Maildir(maildir_path, create=maildir_create)
         self._subfolder_client: Dict[str, mailbox.Maildir] = {}
 

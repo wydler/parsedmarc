@@ -2491,6 +2491,81 @@ password = test-password
         self.assertNotIn("unmapped-1", report_ids)
 
 
+class TestMaildirConnection(unittest.TestCase):
+    """Tests for MaildirConnection subdirectory creation."""
+
+    def test_create_subdirs_when_missing(self):
+        """maildir_create=True creates cur/new/tmp in an empty directory."""
+        from parsedmarc.mail.maildir import MaildirConnection
+
+        with TemporaryDirectory() as d:
+            for subdir in ("cur", "new", "tmp"):
+                self.assertFalse(os.path.exists(os.path.join(d, subdir)))
+
+            conn = MaildirConnection(d, maildir_create=True)
+
+            for subdir in ("cur", "new", "tmp"):
+                self.assertTrue(os.path.isdir(os.path.join(d, subdir)))
+            # Should be able to list messages without error
+            self.assertEqual(conn.fetch_messages("INBOX"), [])
+
+    def test_create_subdirs_idempotent(self):
+        """maildir_create=True is safe when subdirs already exist."""
+        from parsedmarc.mail.maildir import MaildirConnection
+
+        with TemporaryDirectory() as d:
+            for subdir in ("cur", "new", "tmp"):
+                os.makedirs(os.path.join(d, subdir))
+
+            # Should not raise
+            conn = MaildirConnection(d, maildir_create=True)
+            self.assertEqual(conn.fetch_messages("INBOX"), [])
+
+    def test_no_create_raises_on_missing_subdirs(self):
+        """maildir_create=False does not create subdirs; keys() fails."""
+        from parsedmarc.mail.maildir import MaildirConnection
+
+        with TemporaryDirectory() as d:
+            conn = MaildirConnection(d, maildir_create=False)
+
+            with self.assertRaises(FileNotFoundError):
+                conn.fetch_messages("INBOX")
+
+    def test_fetch_and_delete_message(self):
+        """Round-trip: add a message, fetch it, delete it."""
+        from parsedmarc.mail.maildir import MaildirConnection
+
+        with TemporaryDirectory() as d:
+            conn = MaildirConnection(d, maildir_create=True)
+
+            # Add a message via the underlying client
+            msg_key = conn._client.add("From: test@example.com\n\nHello")
+            keys = conn.fetch_messages("INBOX")
+            self.assertIn(msg_key, keys)
+
+            content = conn.fetch_message(msg_key)
+            self.assertIn("test@example.com", content)
+
+            conn.delete_message(msg_key)
+            self.assertEqual(conn.fetch_messages("INBOX"), [])
+
+    def test_move_message_creates_subfolder(self):
+        """move_message auto-creates the destination subfolder."""
+        from parsedmarc.mail.maildir import MaildirConnection
+
+        with TemporaryDirectory() as d:
+            conn = MaildirConnection(d, maildir_create=True)
+
+            msg_key = conn._client.add("From: test@example.com\n\nHello")
+            conn.move_message(msg_key, "archive")
+
+            # Original should be gone
+            self.assertEqual(conn.fetch_messages("INBOX"), [])
+            # Archive subfolder should have the message
+            self.assertIn("archive", conn._subfolder_client)
+            self.assertEqual(len(conn._subfolder_client["archive"].keys()), 1)
+
+
 class TestEnvVarConfig(unittest.TestCase):
     """Tests for environment variable configuration support."""
 
