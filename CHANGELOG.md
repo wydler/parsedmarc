@@ -1,5 +1,16 @@
 # Changelog
 
+## 9.5.5
+
+### Fixed
+
+- Output client initialization now retries up to 4 times with exponential backoff before exiting. This fixes persistent `Connection refused` errors in Docker when OpenSearch or Elasticsearch is momentarily unavailable at startup.
+- Use tuple format for `http_auth` in OpenSearch and Elasticsearch connections, matching the documented convention and avoiding potential issues if the password contains a colon.
+
+### Changes
+
+- Added debug logging of host and SSL settings when connecting to OpenSearch.
+
 ## 9.5.4
 
 ### Fixed

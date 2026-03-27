@@ -299,7 +299,7 @@ def set_hosts(
         else:
             conn_params["verify_certs"] = True
     if username and password:
-        conn_params["http_auth"] = username + ":" + password
+        conn_params["http_auth"] = (username, password)
     if api_key:
         conn_params["api_key"] = api_key
     connections.create_connection(**conn_params)

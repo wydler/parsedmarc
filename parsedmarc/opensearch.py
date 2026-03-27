@@ -298,6 +298,7 @@ def set_hosts(
     """
     if not isinstance(hosts, list):
         hosts = [hosts]
+    logger.debug("Connecting to OpenSearch: hosts=%s, use_ssl=%s", hosts, use_ssl)
     conn_params = {"hosts": hosts, "timeout": timeout}
     if use_ssl:
         conn_params["use_ssl"] = True
@@ -323,7 +324,7 @@ def set_hosts(
         conn_params["connection_class"] = RequestsHttpConnection
     elif normalized_auth_type == "basic":
         if username and password:
-            conn_params["http_auth"] = username + ":" + password
+            conn_params["http_auth"] = (username, password)
         if api_key:
             conn_params["api_key"] = api_key
     else:

@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from argparse import ArgumentParser, Namespace
 from configparser import ConfigParser
 from glob import glob
@@ -1849,15 +1850,30 @@ def _main():
 
     logger.info("Starting parsedmarc")
 
-    # Initialize output clients
-    try:
-        clients = _init_output_clients(opts)
-    except ConfigurationError as e:
-        logger.critical(str(e))
-        exit(1)
-    except Exception as error_:
-        logger.error("Output client error: {0}".format(error_))
-        exit(1)
+    # Initialize output clients (with retry for transient connection errors)
+    max_retries = 4
+    retry_delay = 5
+    for attempt in range(max_retries + 1):
+        try:
+            clients = _init_output_clients(opts)
+            break
+        except ConfigurationError as e:
+            logger.critical(str(e))
+            exit(1)
+        except Exception as error_:
+            if attempt < max_retries:
+                logger.warning(
+                    "Output client error (attempt %d/%d, retrying in %ds): %s",
+                    attempt + 1,
+                    max_retries + 1,
+                    retry_delay,
+                    error_,
+                )
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                logger.error("Output client error: {0}".format(error_))
+                exit(1)
 
     file_paths = []
     mbox_paths = []
