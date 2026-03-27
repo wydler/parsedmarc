@@ -6,6 +6,7 @@
 
 - Output client initialization now retries up to 4 times with exponential backoff before exiting. This fixes persistent `Connection refused` errors in Docker when OpenSearch or Elasticsearch is momentarily unavailable at startup.
 - Use tuple format for `http_auth` in OpenSearch and Elasticsearch connections, matching the documented convention and avoiding potential issues if the password contains a colon.
+- Fix current_time format for MSGraphConnection (current-time) (PR #708)
 
 ### Changes
 
