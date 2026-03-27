@@ -10,7 +10,8 @@
 
 ### Changes
 
-- Added debug logging of host and SSL settings when connecting to OpenSearch.
+- Added debug logging to all output client initialization (S3, syslog, Splunk HEC, Kafka, GELF, webhook, Elasticsearch, OpenSearch).
+- `DEBUG=true` and `PARSEDMARC_DEBUG=true` are now accepted as short aliases for `PARSEDMARC_GENERAL_DEBUG=true`.
 
 ## 9.5.4
 

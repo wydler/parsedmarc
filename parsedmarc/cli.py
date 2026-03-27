@@ -136,12 +136,20 @@ def _apply_env_overrides(config: ConfigParser) -> None:
     """
     prefix = "PARSEDMARC_"
 
-    for env_key, env_value in os.environ.items():
-        if not env_key.startswith(prefix) or env_key == "PARSEDMARC_CONFIG_FILE":
-            continue
+    # Short aliases that don't follow the PARSEDMARC_{SECTION}_{KEY} pattern.
+    _ENV_ALIASES = {
+        "DEBUG": ("general", "debug"),
+        "PARSEDMARC_DEBUG": ("general", "debug"),
+    }
 
-        suffix = env_key[len(prefix) :]
-        section, key = _resolve_section_key(suffix)
+    for env_key, env_value in os.environ.items():
+        if env_key in _ENV_ALIASES:
+            section, key = _ENV_ALIASES[env_key]
+        elif env_key.startswith(prefix) and env_key != "PARSEDMARC_CONFIG_FILE":
+            suffix = env_key[len(prefix) :]
+            section, key = _resolve_section_key(suffix)
+        else:
+            continue
 
         if section is None:
             logger.debug("Ignoring unrecognized env var: %s", env_key)
@@ -989,6 +997,7 @@ def _init_output_clients(opts):
 
     try:
         if opts.s3_bucket:
+            logger.debug("Initializing S3 client: bucket=%s", opts.s3_bucket)
             clients["s3_client"] = s3.S3Client(
                 bucket_name=opts.s3_bucket,
                 bucket_path=opts.s3_path,
@@ -1002,6 +1011,11 @@ def _init_output_clients(opts):
 
     try:
         if opts.syslog_server:
+            logger.debug(
+                "Initializing syslog client: server=%s:%s",
+                opts.syslog_server,
+                opts.syslog_port,
+            )
             clients["syslog_client"] = syslog.SyslogClient(
                 server_name=opts.syslog_server,
                 server_port=int(opts.syslog_port),
@@ -1026,6 +1040,7 @@ def _init_output_clients(opts):
                 "HEC token and HEC index are required when using HEC URL"
             )
         try:
+            logger.debug("Initializing Splunk HEC client: url=%s", opts.hec)
             verify = True
             if opts.hec_skip_certificate_verification:
                 verify = False
@@ -1037,6 +1052,7 @@ def _init_output_clients(opts):
 
     try:
         if opts.kafka_hosts:
+            logger.debug("Initializing Kafka client: hosts=%s", opts.kafka_hosts)
             ssl_context = None
             if opts.kafka_skip_certificate_verification:
                 logger.debug("Skipping Kafka certificate verification")
@@ -1054,6 +1070,11 @@ def _init_output_clients(opts):
 
     try:
         if opts.gelf_host:
+            logger.debug(
+                "Initializing GELF client: host=%s:%s",
+                opts.gelf_host,
+                opts.gelf_port,
+            )
             clients["gelf_client"] = gelf.GelfClient(
                 host=opts.gelf_host,
                 port=int(opts.gelf_port),
@@ -1068,6 +1089,7 @@ def _init_output_clients(opts):
             or opts.webhook_forensic_url
             or opts.webhook_smtp_tls_url
         ):
+            logger.debug("Initializing webhook client")
             clients["webhook_client"] = webhook.WebhookClient(
                 aggregate_url=opts.webhook_aggregate_url,
                 forensic_url=opts.webhook_forensic_url,
@@ -1080,11 +1102,16 @@ def _init_output_clients(opts):
     # Elasticsearch and OpenSearch mutate module-level global state via
     # connections.create_connection(), which cannot be rolled back if a later
     # step fails.  Initialise them last so that all other clients are created
-    # successfully first; this minimises the window for partial-init problems
+    # successfully first; this minimizes the window for partial-init problems
     # during config reload.
     if opts.save_aggregate or opts.save_forensic or opts.save_smtp_tls:
         try:
             if opts.elasticsearch_hosts:
+                logger.debug(
+                    "Initializing Elasticsearch client: hosts=%s, ssl=%s",
+                    opts.elasticsearch_hosts,
+                    opts.elasticsearch_ssl,
+                )
                 es_aggregate_index = "dmarc_aggregate"
                 es_forensic_index = "dmarc_forensic"
                 es_smtp_tls_index = "smtp_tls"
@@ -1123,6 +1150,11 @@ def _init_output_clients(opts):
 
         try:
             if opts.opensearch_hosts:
+                logger.debug(
+                    "Initializing OpenSearch client: hosts=%s, ssl=%s",
+                    opts.opensearch_hosts,
+                    opts.opensearch_ssl,
+                )
                 os_aggregate_index = "dmarc_aggregate"
                 os_forensic_index = "dmarc_forensic"
                 os_smtp_tls_index = "smtp_tls"
@@ -1851,6 +1883,7 @@ def _main():
     logger.info("Starting parsedmarc")
 
     # Initialize output clients (with retry for transient connection errors)
+    clients = {}
     max_retries = 4
     retry_delay = 5
     for attempt in range(max_retries + 1):
