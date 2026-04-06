@@ -388,9 +388,7 @@ def get_ip_address_country(
             db_path = _IP_DB_PATH
         else:
             db_path = str(
-                files(parsedmarc.resources.dbip).joinpath(
-                    "dbip-country-lite.mmdb"
-                )
+                files(parsedmarc.resources.dbip).joinpath("dbip-country-lite.mmdb")
             )
 
     db_age = datetime.now() - datetime.fromtimestamp(os.stat(db_path).st_mtime)
